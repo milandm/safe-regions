@@ -1,0 +1,11 @@
+name: safe-regions
+channels:
+  - pytorch
+  - defaults
+  - conda-forge
+  - fvcore
+dependencies:
+  - python=3.8.2
+  - pytorch=1.8.1
+  - torchvision=0.9.1
+  - pip
