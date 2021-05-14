@@ -4,6 +4,9 @@ channels:
   - defaults
   - conda-forge
   - fvcore
+  - yaml
+  - wandb
+  - matplotlib
 dependencies:
   - python=3.8.2
   - pytorch=1.8.1
