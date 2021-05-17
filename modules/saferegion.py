@@ -1,9 +1,6 @@
 import torch
-import torch.nn as nn
-from torch.nn import Module
-from torch.nn.parameter import Parameter
-import torch.nn.functional as F
 from torch import Tensor
+from torch.nn import Module
 
 
 # TODO:
@@ -18,7 +15,7 @@ from torch import Tensor
 # 4. support DDP
 # 5. tests
 # 6. module 1d, 2d, 3d
-# plot number of in / outs per sample
+
 
 class SafeRegion(Module):
     """
@@ -45,8 +42,10 @@ class SafeRegion(Module):
         self.register_buffer('running_var', torch.ones(num_features))
         self.register_buffer('num_batches_tracked', torch.tensor(0, dtype=torch.long))
         self.register_buffer('num_samples_tracked', torch.tensor(0, dtype=torch.long))
-        self.register_buffer('running_min', None)
-        self.register_buffer('running_max', None)
+        # we are setting initial value to 0. because it really doesn't matter
+        # we are checking num of seen batches and based on that we set to first value we see
+        self.register_buffer('running_min',  torch.zeros(num_features))
+        self.register_buffer('running_max',  torch.zeros(num_features))
 
         # test stats
         self.in_out = None
@@ -57,8 +56,8 @@ class SafeRegion(Module):
         self.running_var.fill_(1)
         self.num_batches_tracked.zero_()
         self.num_samples_tracked.zero_()
-        self.running_min = None
-        self.running_max = None
+        self.running_min.zero_()
+        self.running_max.zero_()
 
         # test time stats
         self.in_out = None
@@ -75,7 +74,8 @@ class SafeRegion(Module):
         self._check_input_dim(input)
         batch_size = input.shape[0]
 
-        if self.training:   # at training time we are record parameters
+        # at training time we record parameters
+        if self.training:
             if self.num_batches_tracked == 0:
                 self.running_min = torch.min(input, dim=0)[0]
                 self.running_max = torch.max(input, dim=0)[0]
@@ -94,7 +94,8 @@ class SafeRegion(Module):
             self.running_mean = (1 - exponential_average_factor) * self.running_mean + exponential_average_factor * torch.mean(input, dim=0)
             self.running_var = (1 - exponential_average_factor) * self.running_var + exponential_average_factor * torch.var(input, dim=0)
         else:
-            # at test time we are saving in / out matrix and how far away last input is away from safe region
-            pass
+            # at test time we are storing in / out matrix and how far away last input is away from safe region
+            self.distance = torch.abs(input - self.running_mean)
+            self.in_out = torch.logical_and(input.le(self.running_min), input.gt(self.running_max))
 
         return input

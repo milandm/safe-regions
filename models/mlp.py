@@ -10,6 +10,8 @@ from torchvision import datasets, transforms
 
 from modules.saferegion import SafeRegion
 from utils.utils import is_debug_session, load_config_yml
+from utils.viz_net import visualize_in_out
+
 
 os.environ['WANDB_IGNORE_GLOBS'] = '*.pth'
 
@@ -99,9 +101,65 @@ def train(config):
         torch.save(model.state_dict(), checkpoint_file)
 
 
+def test(config):
+    # init wandb
+    wandb.init(project='saferegions', config=config, dir=os.getenv('LOG'))
+    model = MLP(config['arch'])
+
+    # load checkpoints
+    if config['train_restore_file']:
+        model.load_state_dict(torch.load(config['train_restore_file']))
+
+    model.eval()
+
+    kwargs = {'num_workers': 2, 'pin_memory': True} if torch.cuda.is_available() and not is_debug_session() else {}
+    transform = transforms.Compose([
+        transforms.ToTensor()
+    ])
+
+    test_dataset = datasets.MNIST(os.getenv('DATASETS'),
+                                  train=False,
+                                  download=True,
+                                  transform=transform)
+
+    # hardcoding batch_size to 1
+    test_loader = torch.utils.data.DataLoader(test_dataset,
+                                              batch_size=1,
+                                              **kwargs)
+
+    device = config['device']
+    model = model.to(device)
+    step = 0
+    for batch_idx, (data, target) in enumerate(test_loader):
+        data, target = data.to(device), target.to(device)
+        in_dim = data.shape[2] * data.shape[3]
+        inputs_vec = data.reshape((data.shape[0], in_dim))
+        output = model(inputs_vec)
+        p = torch.softmax(output, dim=1)
+        c = torch.argmax(p, dim=1)
+
+        # log sample
+        predicted_caption = str(c[0].item())
+        gt_caption = str(target[0].item())
+        caption = 'Prediction: {}\nGround Truth: {}'.format(predicted_caption, gt_caption)
+        sample_img = data[0].detach().cpu()
+        chart = visualize_in_out(model)
+        log_dict = {
+            "test/sample": wandb.Image(sample_img, caption=caption),
+            "test/chart": wandb.Image(chart)
+        }
+        wandb.log(log_dict, step=step)
+        step += 1
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Tool for experimenting with SafeRegion module')
+    parser.add_argument('--train', action='store_true', default=False)
     parser.add_argument('--config', type=str, default='config/dev_config.yml', help='Path to yml config')
     args = parser.parse_args()
     config = load_config_yml(args.config)
-    train(config)
+
+    if args.train:
+        train(config)
+    else:
+        test(config)

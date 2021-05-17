@@ -17,4 +17,6 @@ config:
   device: "cuda"
   # validation freq
   val_freq: 100
+  # restore path
+  train_restore_file: "/home/andrijazz/storage/saferegions/log/wandb/run-20210514_222536-7m8yz5dd/files/mlp-9360.pth"
 
