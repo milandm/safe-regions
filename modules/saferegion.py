@@ -4,17 +4,13 @@ from torch.nn import Module
 
 
 # TODO:
-# engineering todo
-# 1. quickly add DDP
-# 2. swap in bigger models
-
-# module todo
-# 1. small precision err when cmp with nn.BatchNorm1d
-# 2. can we use maybe affine parameters?
-# 3. lazy initializer
-# 4. support DDP
-# 5. tests
-# 6. module 1d, 2d, 3d
+# small precision err when cmp with nn.BatchNorm1d
+# can we use maybe affine parameters?
+# lazy initializer
+# support DDP
+# tests
+# module 1d, 2d, 3d
+# swap in bigger models
 
 
 class SafeRegion(Module):
@@ -96,6 +92,6 @@ class SafeRegion(Module):
         else:
             # at test time we are storing in / out matrix and how far away last input is away from safe region
             self.distance = torch.abs(input - self.running_mean)
-            self.in_out = torch.logical_and(input.le(self.running_min), input.gt(self.running_max))
+            self.in_out = torch.logical_and(input.gt(self.running_min), input.le(self.running_max))
 
         return input

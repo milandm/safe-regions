@@ -2,6 +2,7 @@
 
 from math import cos, sin, atan
 
+import numpy as np
 from matplotlib import pyplot
 
 from modules.saferegion import SafeRegion
@@ -103,8 +104,26 @@ class NeuralNetwork:
         for layer in self.layers:
             layer.draw()
         pyplot.axis('scaled')
-        return pyplot
         # pyplot.show()
+
+
+def fig2data(fig):
+    """
+    @brief Convert a Matplotlib figure to a 4D numpy array with RGBA channels and return it
+    @param fig a matplotlib figure
+    @return a numpy 3D array of RGBA values
+    """
+    # draw the renderer
+    fig.canvas.draw()
+
+    # Get the RGBA buffer from the figure
+    w, h = fig.canvas.get_width_height()
+    buf = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8)
+    buf.shape = (w, h, 4)
+
+    # canvas.tostring_argb give pixmap in ARGB mode. Roll the ALPHA channel to have it in RGBA mode
+    buf = np.roll(buf, 3, axis=2)
+    return buf
 
 
 def visualize_in_out(model, draw_connections=False):
@@ -128,7 +147,7 @@ def visualize_in_out(model, draw_connections=False):
     num_layers = len(safe_regions)
     f = pyplot.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
 
-    # calculated
+    # draw network
     vertical_distance_between_layers = height / num_layers
     horizontal_distance_between_neurons = width / number_of_neurons_in_widest_layer
     neuron_radius = horizontal_distance_between_neurons / 3
@@ -139,10 +158,12 @@ def visualize_in_out(model, draw_connections=False):
 
     for name, sr in safe_regions.items():
         network.add_layer(sr[0], sr[1])
+    network.draw()
 
-    plot = network.draw()
-    return plot
-
+    image = fig2data(f)
+    f.clear()
+    pyplot.close(f)
+    return image
 
 # if __name__ == "__main__":
 #     vertical_distance_between_layers = 6

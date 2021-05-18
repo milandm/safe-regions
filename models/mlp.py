@@ -12,7 +12,6 @@ from modules.saferegion import SafeRegion
 from utils.utils import is_debug_session, load_config_yml
 from utils.viz_net import visualize_in_out
 
-
 os.environ['WANDB_IGNORE_GLOBS'] = '*.pth'
 
 
@@ -36,6 +35,40 @@ class MLP(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
+
+def accuracy(predictions, gt):
+    m = gt.shape[0]
+    acc = np.sum(predictions == gt) / m
+    return acc
+
+
+def _validate(model, val_loader, device):
+    p = []
+    gt = []
+    for samples in val_loader:
+        inputs = samples[0]
+        batch_size = inputs.shape[0]
+        in_dim = inputs.shape[2] * inputs.shape[3]
+        inputs_vec = inputs.reshape((batch_size, in_dim))
+        labels = samples[1]
+        inputs_vec = inputs_vec.to(device)
+        labels = labels.to(device)
+
+        # forward
+        outputs = model(inputs_vec)
+
+        probability_outputs = torch.softmax(outputs, dim=1)
+        predicted_classes = torch.argmax(probability_outputs, dim=1)
+        predicted_classes = predicted_classes.detach().cpu()
+        labels = labels.detach().cpu()
+        p.extend(predicted_classes.tolist())
+        gt.extend(labels.tolist())
+
+    p = np.array(p, dtype=np.int32)
+    gt = np.array(gt, dtype=np.int32)
+    acc = accuracy(p, gt)
+    return acc
 
 
 def train(config):
@@ -93,6 +126,16 @@ def train(config):
                 caption = 'Prediction: {}\nGround Truth: {}'.format(predicted_caption, gt_caption)
                 sample_img = data[sample_idx].detach().cpu()
                 wandb.log({"train/samples": wandb.Image(sample_img, caption=caption)}, step=step)
+            if step % config['val_freq'] == 0:
+                model.eval()
+                with torch.no_grad():
+                    model_name = '{}-{}.pth'.format(config['model'], step)
+                    checkpoint_file = os.path.join(wandb.run.dir, model_name)
+                    torch.save(model.state_dict(), checkpoint_file)
+                    acc = _validate(model, val_loader, device)
+                    wandb.log({"val/acc": acc}, step=step)
+                model.train()
+
             step += 1
 
     with torch.no_grad():
@@ -134,6 +177,11 @@ def test(config):
         data, target = data.to(device), target.to(device)
         in_dim = data.shape[2] * data.shape[3]
         inputs_vec = data.reshape((data.shape[0], in_dim))
+        # r1 = -10
+        # r2 = 10
+        # inputs_vec = (r1 - r2) * torch.rand([1, 784], device=device) + r2
+        # noise = torch.rand(inputs_vec.shape, device=device)
+        # inputs_vec = inputs_vec + noise
         output = model(inputs_vec)
         p = torch.softmax(output, dim=1)
         c = torch.argmax(p, dim=1)
