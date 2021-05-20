@@ -191,10 +191,10 @@ def test(config):
         gt_caption = str(target[0].item())
         caption = 'Prediction: {}\nGround Truth: {}'.format(predicted_caption, gt_caption)
         sample_img = data[0].detach().cpu()
-        chart = visualize_in_out(model)
+        in_out_chart = visualize_in_out(model)
         log_dict = {
             "test/sample": wandb.Image(sample_img, caption=caption),
-            "test/chart": wandb.Image(chart)
+            "test/in_out": wandb.Image(in_out_chart)
         }
         wandb.log(log_dict, step=step)
         step += 1

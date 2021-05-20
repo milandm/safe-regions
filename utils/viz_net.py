@@ -73,9 +73,9 @@ class Layer:
     def draw(self):
         for neuron in self.neurons:
             neuron.draw()
-            # if self.previous_layer:
-            #     for previous_layer_neuron in self.previous_layer.neurons:
-            #         self.__line_between_two_neurons(neuron, previous_layer_neuron)
+            if self.previous_layer:
+                for previous_layer_neuron in self.previous_layer.neurons:
+                    self.__line_between_two_neurons(neuron, previous_layer_neuron)
 
 
 class NeuralNetwork:
@@ -104,6 +104,10 @@ class NeuralNetwork:
         for layer in self.layers:
             layer.draw()
         pyplot.axis('scaled')
+        pyplot.axis('off')
+        red_circle = pyplot.Line2D([0], [0], marker='o', color='w', markerfacecolor='r', markersize=15)
+        green_circle = pyplot.Line2D([0], [0], marker='o', color='w', markerfacecolor='g', markersize=15)
+        pyplot.legend([green_circle, red_circle], ['inside safe region', 'outside safe region'], loc="upper left")
         # pyplot.show()
 
 
