@@ -9,7 +9,7 @@ import wandb
 from torchvision import datasets, transforms
 
 from modules.saferegion import SafeRegion
-from utils.utils import is_debug_session, load_config_yml
+from utils.utils import is_debug_session, load_config_yml, accuracy
 from utils.viz_net import visualize_in_out
 
 os.environ['WANDB_IGNORE_GLOBS'] = '*.pth'
@@ -35,12 +35,6 @@ class MLP(nn.Module):
 
     def forward(self, x):
         return self.net(x)
-
-
-def accuracy(predictions, gt):
-    m = gt.shape[0]
-    acc = np.sum(predictions == gt) / m
-    return acc
 
 
 def _validate(model, val_loader, device):
