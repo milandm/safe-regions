@@ -12,13 +12,13 @@ config:
     # train batch size per gpu
     train_batch_size: 64
     # number of epochs
-    train_num_epochs: 5
+    train_num_epochs: 100
     # restore from wandb or local
     train_restore_storage: ""
     # path to checkpoint from which to be restored
     train_restore_file: ""
     # learning rate
-    learning_rate: 0.01
+    learning_rate: 0.001
     # validation batch size
     val_batch_size: 64
     # log freq

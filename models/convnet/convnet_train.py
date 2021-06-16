@@ -19,7 +19,7 @@ from ray.util.sgd.utils import override
 from torch.utils.data import DataLoader
 from tqdm import trange
 
-from models.convnet.convnet_models import vgg16
+from models.convnet.safe_vgg16 import SafeVGG16
 from utils.utils import zero_grad, AverageMeter, is_debug_session, load_config_yml
 
 # Debugging options
@@ -34,7 +34,7 @@ os.environ['WANDB_IGNORE_GLOBS'] = '*.pth'
 
 def build_model(model_name, num_classes):
     if model_name == 'vgg16':
-        return vgg16(num_classes=num_classes)
+        return SafeVGG16(num_classes=num_classes)
 
     exit('{} model is not supported'.format(model_name))
 
@@ -45,7 +45,7 @@ def build_dataset(config):
         transform = transforms.Compose([
             transforms.Resize(config.get("resolution")),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225), inplace=True)])
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
         train_dataset = torchvision.datasets.ImageNet(config['train_dataset_path'], transform=transform)
         val_dataset = torchvision.datasets.ImageNet(config['val_dataset_path'], transform=transform)
         return train_dataset, val_dataset
@@ -55,7 +55,7 @@ def build_dataset(config):
         transform = transforms.Compose([
             transforms.Resize(config.get("resolution")),
             transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225), inplace=True)])
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
         train_dataset = torchvision.datasets.CIFAR10(config['train_dataset_path'], transform=transform, download=True)
         val_dataset = torchvision.datasets.CIFAR10(config['train_dataset_path'], transform=transform, download=True)
         return train_dataset, val_dataset
@@ -90,7 +90,7 @@ class ConvNetTrainingOperator(TrainingOperator):
             self.classes = train_dataset.classes
 
             # construct the models
-            model = vgg16(len(self.classes))
+            model = build_model(config['model_name'], len(self.classes))
 
         kwargs = {}
         if torch.cuda.is_available() and not is_debug_session():
@@ -102,14 +102,14 @@ class ConvNetTrainingOperator(TrainingOperator):
                                       **kwargs)
 
         val_dataloader = DataLoader(val_dataset,
-                                    shuffle=True,
                                     batch_size=config.get("val_batch_size"),
                                     **kwargs)
 
         self.num_batches = len(train_dataloader)
 
         # setup optimizer
-        optimizer = optim.Adam(model.parameters(), lr=self.config['learning_rate'])
+        # optimizer = optim.Adam(model.parameters(), lr=self.config['learning_rate'])
+        optimizer = optim.SGD(model.parameters(), lr=self.config['learning_rate'], momentum=0.9)
         criterion = nn.CrossEntropyLoss()
         self.model, self.optimizer, self.criterion = self.register(models=model,
                                                                    optimizers=optimizer,
@@ -119,16 +119,15 @@ class ConvNetTrainingOperator(TrainingOperator):
         # self.amp_enabled = self.config['use_fp16']
         # self.scaler = GradScaler(enabled=self.amp_enabled)
 
-
     @override(TrainingOperator)
     def train_batch(self, batch, batch_info):
         """Trains on one batch of data from the data creator."""
 
         step = batch_info["batch_idx"]
         start_time = time.time()
-        batch_size = batch[0].shape[0]
         images = batch[0]
         labels = batch[1]
+        batch_size = images.shape[0]
 
         # Create non_blocking tensors for distributed training
         if self.use_gpu:
@@ -136,10 +135,9 @@ class ConvNetTrainingOperator(TrainingOperator):
             labels = labels.cuda(non_blocking=True)
 
         # forward
+        self.optimizer.zero_grad()
         outputs = self.model(images)
         loss = self.criterion(outputs, labels)
-
-        zero_grad(self.model)
         loss.backward()
         self.optimizer.step()
 
@@ -175,17 +173,16 @@ class ConvNetTrainingOperator(TrainingOperator):
 
     @override(TrainingOperator)
     def validate(self, val_dataloader, info=None):
-        loss_meter = AverageMeter()
-        acc_meter = AverageMeter()
-
+        self.model.eval()
         log_sample = True
         log_dict = dict()
-
-        self.model.eval()
+        loss_meter = AverageMeter()
+        acc_meter = AverageMeter()
         with torch.no_grad():
             for samples in val_dataloader:
                 images = samples[0]
                 labels = samples[1]
+
                 # Create non_blocking tensors for distributed training
                 if self.use_gpu:
                     images = images.cuda(non_blocking=True)
@@ -203,8 +200,6 @@ class ConvNetTrainingOperator(TrainingOperator):
                 labels = labels.detach().cpu().numpy()
                 predicted = predicted.detach().cpu().numpy()
 
-                acc_meter.update(np.sum(predicted == labels), n=labels.shape[0])
-
                 # log image in first iter only
                 if log_sample and self.world_rank == 0:
                     # log random samples
@@ -216,7 +211,8 @@ class ConvNetTrainingOperator(TrainingOperator):
                     log_dict['val/sample'] = wandb.Image(sample_img, caption=caption)
                     log_sample = False
 
-        # log loss
+                acc_meter.update(np.sum(predicted == labels), n=labels.shape[0])
+
         val_loss = loss_meter.avg
         val_acc = acc_meter.avg
 
@@ -242,7 +238,7 @@ class ConvNetTrainingOperator(TrainingOperator):
         # Note: If trainer.load is called optimizers state will be always loaded during self.register call
         # therefore, if we don't want optim state to be loaded we need to recreate them again
         if not self.config['load_optim_state']:
-            self.optimizer = optim.Adam(self.model.parameters(), lr=self.config['learning_rate'])
+            pass
 
 
 def train(args):
@@ -303,7 +299,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-workers", type=int, default=1, help="Sets number of workers for training.")
     parser.add_argument("--use-gpu", action="store_true", default=False, help="Enables GPU training")
     parser.add_argument("--use-fp16", action="store_true", default=False, help="Enables mixed precision training")
-    parser.add_argument("--num-cpus-per-worker", type=int, default=1, help="Sets number of cpus per worker for training.")
+    parser.add_argument("--num-cpus-per-worker", type=int, default=1, help="Sets number of cpus per worker")
     parser.add_argument("--use-tqdm", action="store_true", default=False, help="Enables tqdm")
     args = parser.parse_args()
     ray.init(address=args.address, local_mode=is_debug_session())

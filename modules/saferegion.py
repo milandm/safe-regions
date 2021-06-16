@@ -1,3 +1,7 @@
+# Reference
+# https://github.com/ptrblck/pytorch_misc/blob/master/batch_norm_manual.py
+
+
 import torch
 from torch import Tensor
 from torch.nn import Module
@@ -5,15 +9,12 @@ from torch.nn import Module
 
 # TODO:
 # small precision err when cmp with nn.BatchNorm1d
-# can we use maybe affine parameters?
 # lazy initializer
 # support DDP
-# tests
-# module 1d, 2d, 3d
 # swap in bigger models
 
 
-class SafeRegion(Module):
+class _SafeRegion(Module):
     """
     Module for recording safe regions of neural units
     """
@@ -26,9 +27,9 @@ class SafeRegion(Module):
         self,
         num_features: int,
         eps: float = 1e-5,
-        momentum: float = None
+        momentum: float = 0.1
     ) -> None:
-        super(SafeRegion, self).__init__()
+        super(_SafeRegion, self).__init__()
         self.num_features = num_features
         self.eps = eps
         self.momentum = momentum
@@ -60,38 +61,69 @@ class SafeRegion(Module):
         self.distance = None
 
     def _check_input_dim(self, input):
-        if input.dim() != 2:
-            raise ValueError(f'expected 2D input (got {input.dim()}D input)')
-
-        if input.shape[1] != self.num_features:
-            raise ValueError(f'expected input of size (N, {self.num_features}) (got (N, {input.shape[1]}) input)')
+        raise NotImplementedError
 
     def forward(self, input: Tensor) -> Tensor:
         self._check_input_dim(input)
         batch_size = input.shape[0]
+        dims = [d for d in range(input.dim())]
+        dims.pop(1)
 
         # at training time we record parameters
-        if self.training:
-            if self.num_batches_tracked == 0:
-                self.running_min = torch.min(input, dim=0)[0]
-                self.running_max = torch.max(input, dim=0)[0]
+        with torch.no_grad():
+            if self.training:
+                min = input.amin(dim=dims)
+                max = input.amax(dim=dims)
+                if self.num_batches_tracked == 0:
+                    self.running_min = min
+                    self.running_max = max
+                else:
+                    self.running_min = torch.min(self.running_min, min)
+                    self.running_max = torch.max(self.running_max, max)
+
+                self.num_batches_tracked.add_(1)
+                self.num_samples_tracked.add_(batch_size)
+
+                if self.momentum:
+                    exponential_average_factor = self.momentum
+                else:
+                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
+
+                mean = input.mean(dims)
+
+                # use biased var in train
+                var = input.var(dims, unbiased=False)
+                n = input.numel() / input.size(1)
+                self.running_mean = exponential_average_factor * mean \
+                                    + (1 - exponential_average_factor) * self.running_mean
+                # update running_var with unbiased var
+                self.running_var = exponential_average_factor * var * n / (n - 1) \
+                                   + (1 - exponential_average_factor) * self.running_var
             else:
-                self.running_min = torch.min(self.running_min, torch.min(input, dim=0)[0])
-                self.running_max = torch.max(self.running_max, torch.max(input, dim=0)[0])
-
-            self.num_batches_tracked.add_(1)
-            self.num_samples_tracked.add_(batch_size)
-
-            if self.momentum:
-                exponential_average_factor = self.momentum
-            else:
-                exponential_average_factor = 1.0 / float(self.num_batches_tracked)
-
-            self.running_mean = (1 - exponential_average_factor) * self.running_mean + exponential_average_factor * torch.mean(input, dim=0)
-            self.running_var = (1 - exponential_average_factor) * self.running_var + exponential_average_factor * torch.var(input, dim=0)
-        else:
-            # at test time we are storing in / out matrix and how far away last input is away from safe region
-            self.distance = torch.abs(input - self.running_mean)
-            self.in_out = torch.logical_and(input.gt(self.running_min), input.le(self.running_max))
+                pass
 
         return input
+
+
+class SafeRegion1d(_SafeRegion):
+    """Applies Safe Region recording over a 2D or 3D input (a mini-batch of 1D inputs
+     with optional additional channel dimension)
+    """
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+
+
+class SafeRegion2d(_SafeRegion):
+    """Applies Safe Region recording over a 4D input (a mini-batch of 2D inputs with additional channel dimension)"""
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+
+
+class SafeRegion3d(_SafeRegion):
+    """Applies Safe Region recording over a 5D input (a mini-batch of 3D inputs
+    with additional channel dimension)"""
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
