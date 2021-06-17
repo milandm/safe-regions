@@ -16,11 +16,13 @@ from filelock import FileLock
 from ray.util.sgd import TorchTrainer
 from ray.util.sgd.torch import TrainingOperator
 from ray.util.sgd.utils import override
+from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from tqdm import trange
 
 from models.convnet.safe_vgg16 import SafeVGG16
-from utils.utils import zero_grad, AverageMeter, is_debug_session, load_config_yml
+from modules.saferegion import SafeRegion1d, SafeRegion2d, SafeRegion3d
+from utils.utils import AverageMeter, is_debug_session, load_config_yml, accuracy
 
 # Debugging options
 # from pytorch_memlab import profile
@@ -43,11 +45,12 @@ def build_dataset(config):
     if config['dataset_name'] == "imagenet":
         # setup transforms
         transform = transforms.Compose([
-            transforms.Resize(config.get("resolution")),
+            transforms.RandomResizedCrop(config.get("resolution")),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
-        train_dataset = torchvision.datasets.ImageNet(config['train_dataset_path'], transform=transform)
-        val_dataset = torchvision.datasets.ImageNet(config['val_dataset_path'], transform=transform)
+        train_dataset = torchvision.datasets.ImageFolder(config['train_dataset_path'], transform=transform)
+        val_dataset = torchvision.datasets.ImageFolder(config['val_dataset_path'], transform=transform)
         return train_dataset, val_dataset
 
     if config['dataset_name'] == "cifar10":
@@ -75,6 +78,25 @@ def initialization_hook():
     # print("NCCL DEBUG SET")
     os.environ["NCCL_SOCKET_IFNAME"] = "^docker0,lo,eth1"
     os.environ["NCCL_LL_THRESHOLD"] = "0"
+
+
+def collect_safe_regions_stats(model):
+    temp_model = model
+    if type(model) is DistributedDataParallel:
+        temp_model = model.module
+
+    stats = dict()
+    idx = 0
+    for module in temp_model.modules():
+        if isinstance(module, SafeRegion1d) or isinstance(module, SafeRegion2d) or isinstance(module, SafeRegion3d):
+            stats[f'safe_regions_stats/{idx}/avg_running_mean'] = module.running_mean.mean().item()
+            stats[f'safe_regions_stats/{idx}/avg_running_var'] = module.running_var.mean().item()
+            stats[f'safe_regions_stats/{idx}/avg_running_min'] = module.running_min.mean().item()
+            stats[f'safe_regions_stats/{idx}/avg_running_max'] = module.running_max.mean().item()
+            stats[f'safe_regions_stats/{idx}/num_samples_tracked'] = module.num_samples_tracked.item()
+            stats[f'safe_regions_stats/{idx}/num_batches_tracked'] = module.num_batches_tracked.item()
+            idx += 1
+    return stats
 
 
 class ConvNetTrainingOperator(TrainingOperator):
@@ -123,7 +145,6 @@ class ConvNetTrainingOperator(TrainingOperator):
     def train_batch(self, batch, batch_info):
         """Trains on one batch of data from the data creator."""
 
-        step = batch_info["batch_idx"]
         start_time = time.time()
         images = batch[0]
         labels = batch[1]
@@ -141,7 +162,7 @@ class ConvNetTrainingOperator(TrainingOperator):
         loss.backward()
         self.optimizer.step()
 
-        if self.world_rank == 0 and step % self.config['train_log_freq'] == 0:
+        if self.world_rank == 0 and self.global_step % self.config['train_log_freq'] == 0:
             # logs
             _, predicted = torch.max(outputs, dim=1)
 
@@ -164,6 +185,8 @@ class ConvNetTrainingOperator(TrainingOperator):
                 "train/sample": wandb.Image(sample_img, caption=caption),
                 "train/sec_per_kimg": ((end_time - start_time) * 1000) / (batch_size * self.config['num_workers'])
             }
+            safe_regions_stats = collect_safe_regions_stats(self.model)
+            log_dict.update(safe_regions_stats)
             wandb.log(log_dict, step=self.global_step)
 
         stats = {
@@ -177,7 +200,8 @@ class ConvNetTrainingOperator(TrainingOperator):
         log_sample = True
         log_dict = dict()
         loss_meter = AverageMeter()
-        acc_meter = AverageMeter()
+        top1_meter = AverageMeter()
+        top5_meter = AverageMeter()
         with torch.no_grad():
             for samples in val_dataloader:
                 images = samples[0]
@@ -191,7 +215,11 @@ class ConvNetTrainingOperator(TrainingOperator):
                 # forward
                 outputs = self.model(images)
                 loss = self.criterion(outputs, labels)
+                acc1, acc5 = accuracy(outputs, labels, topk=(1, 5))
+
                 loss_meter.update(loss.item())
+                top1_meter.update(acc1.item(), n=images.size(0))
+                top5_meter.update(acc5.item(), n=images.size(0))
 
                 _, predicted = torch.max(outputs, dim=1)
 
@@ -211,19 +239,20 @@ class ConvNetTrainingOperator(TrainingOperator):
                     log_dict['val/sample'] = wandb.Image(sample_img, caption=caption)
                     log_sample = False
 
-                acc_meter.update(np.sum(predicted == labels), n=labels.shape[0])
-
         val_loss = loss_meter.avg
-        val_acc = acc_meter.avg
+        top1_acc = top1_meter.avg
+        top5_acc = top5_meter.avg
 
         if self.world_rank == 0:
             log_dict['val/loss'] = val_loss
-            log_dict['val/acc'] = val_acc
+            log_dict['val/top1'] = top1_acc
+            log_dict['val/top5'] = top5_acc
             wandb.log(log_dict, step=self.global_step)
 
         stats = {
             'val_loss': val_loss,
-            'val_acc': val_acc
+            'val_top1': top1_acc,
+            'val_top5': top5_acc,
         }
         return stats
 
@@ -283,7 +312,10 @@ def train(args):
         val_stats = trainer.validate(info=dict(epoch_idx=itr, num_epochs=num_epochs))
 
         # log
-        pbar.set_postfix(dict(train_loss=stats["loss"], vaL_loss=val_stats["val_loss"], vaL_acc=val_stats["val_acc"]))
+        pbar.set_postfix(dict(train_loss=stats["loss"],
+                              vaL_loss=val_stats["val_loss"],
+                              val_top1=val_stats["val_top1"],
+                              val_top5=val_stats["val_top5"]))
 
         # save models
         with torch.no_grad():

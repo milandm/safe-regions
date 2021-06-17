@@ -1,0 +1,25 @@
+config:
+    # resolution
+    resolution: [224, 224]
+    # model name
+    model_name: "vgg16"
+    # dataset name
+    dataset_name: "imagenet"
+    # train dataset
+    train_dataset_path: "/media/andrijazz/datadrive/datasets/imagenet/train"
+    # val dataset
+    val_dataset_path: "/media/andrijazz/datadrive/datasets/imagenet/val"
+    # train batch size per gpu
+    train_batch_size: 16
+    # number of epochs
+    train_num_epochs: 100
+    # restore from wandb or local
+    train_restore_storage: ""
+    # path to checkpoint from which to be restored
+    train_restore_file: ""
+    # learning rate
+    learning_rate: 0.001
+    # validation batch size
+    val_batch_size: 16
+    # log freq
+    train_log_freq: 100
