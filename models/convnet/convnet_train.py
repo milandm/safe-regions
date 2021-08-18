@@ -372,10 +372,11 @@ def train(args):
                               val_top5=val_stats["val_top5"]))
 
         # save models
-        with torch.no_grad():
-            checkpoint_filename = "{}_{}_{}.pth".format(config['model_name'], wandb.run.id, itr)
-            checkpoint_path = os.path.join(os.getenv("LOG"), wandb.run.dir, checkpoint_filename)
-            trainer.save(checkpoint_path)
+        if itr % config['train_save_freq'] == 0 or val_stats["val_top1"] > 0.98:
+            with torch.no_grad():
+                checkpoint_filename = "{}_{}_{}.pth".format(config['model_name'], wandb.run.id, itr)
+                checkpoint_path = os.path.join(os.getenv("LOG"), wandb.run.dir, checkpoint_filename)
+                trainer.save(checkpoint_path)
 
 
 if __name__ == "__main__":
