@@ -23,3 +23,7 @@ config:
     val_batch_size: 64
     # log freq
     train_log_freq: 100
+    # plot graphs to wandb
+    plot_graphs_to_wandb_log_freq: 1000
+    # log video
+    log_video: true

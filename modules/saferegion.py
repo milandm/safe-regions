@@ -74,12 +74,16 @@ class _SafeRegion(Module):
             if self.training:
                 min = input.amin(dim=dims)
                 max = input.amax(dim=dims)
+
+                min = torch.nan_to_num(min)
+                max = torch.nan_to_num(max)
+
                 if self.num_batches_tracked == 0:
                     self.running_min = min
                     self.running_max = max
                 else:
-                    self.running_min = torch.min(self.running_min, min)
-                    self.running_max = torch.max(self.running_max, max)
+                    self.running_min = torch.minimum(self.running_min, min)
+                    self.running_max = torch.maximum(self.running_max, max)
 
                 self.num_batches_tracked.add_(1)
                 self.num_samples_tracked.add_(batch_size)
