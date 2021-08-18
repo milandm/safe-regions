@@ -80,7 +80,6 @@ def initialization_hook():
     # print("NCCL DEBUG SET")
     os.environ["NCCL_SOCKET_IFNAME"] = "^docker0,lo,eth1"
     os.environ["NCCL_LL_THRESHOLD"] = "0"
-    # os.environ['WANDB_IGNORE_GLOBS'] = "**\*.png"
 
 
 def collect_safe_regions_stats(model, run_dir=None, step=None, plot_graphs_to_wandb_log_freq=0):
@@ -90,6 +89,9 @@ def collect_safe_regions_stats(model, run_dir=None, step=None, plot_graphs_to_wa
 
     stats = dict()
     idx = 0
+
+    fig = plt.figure()
+
     for module in temp_model.modules():
         if isinstance(module, SafeRegion1d) or isinstance(module, SafeRegion2d) or isinstance(module, SafeRegion3d):
             # stats[f'safe_regions_stats/{idx}/avg_running_mean'] = module.running_mean.mean().item()
@@ -127,21 +129,20 @@ def collect_safe_regions_stats(model, run_dir=None, step=None, plot_graphs_to_wa
                 os.makedirs(layer_dir)
 
             # matplotlib plot
-            plt.figure()
-            plt.plot(xs, ys_max, label="running_max", linestyle="-")
-            plt.plot(xs, ys_mean, label="running_mean", linestyle="-")
-            plt.plot(xs, ys_min, label="running_min", linestyle="-")
-            plt.plot()
-            plt.xlabel('neural unit')
-            plt.ylabel('recorded value')
-            plt.title(f'Safe region per neural unit at step {step}')
+            ax = fig.add_subplot()
+            ax.plot(xs, ys_max, label="running_max", linestyle="-")
+            ax.plot(xs, ys_mean, label="running_mean", linestyle="-")
+            ax.plot(xs, ys_min, label="running_min", linestyle="-")
+            ax.set_xlabel('neural unit')
+            ax.set_ylabel('recorded value')
+            ax.set_title(f'Safe region per neural unit at step {step}')
             max_bound = 20
             min_bound = 20
-            plt.ylim((-min_bound, max_bound))
-            plt.legend()
+            ax.set_ylim((-min_bound, max_bound))
+            ax.legend()
             fig_name = os.path.join(layer_dir, f"{str(step).zfill(7)}.png")
-            plt.savefig(fig_name)
-            plt.close()
+            fig.savefig(fig_name)
+            plt.clf()
             idx += 1
     return stats
 
@@ -151,7 +152,6 @@ class ConvNetTrainingOperator(TrainingOperator):
         # setup wandb
         if self.world_rank == 0:
             wandb.init(project=os.getenv("PROJECT"), dir=os.getenv("LOG"), config=config, group=config['wandb_group'])
-            print(wandb.run._settings.ignore_globs)
 
         # init dataset
         with FileLock(".ray.lock"):
