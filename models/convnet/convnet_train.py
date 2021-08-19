@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 
 from models.convnet.safe_vgg16 import SafeVGG16
+from models.convnet.safe_resnet import resnet18
 from modules.saferegion import SafeRegion1d, SafeRegion2d, SafeRegion3d
 from utils.utils import AverageMeter, is_debug_session, load_config_yml, accuracy
 
@@ -39,6 +40,11 @@ os.environ['WANDB_IGNORE_GLOBS'] = "*.png"
 def build_model(model_name, num_classes):
     if model_name == 'vgg16':
         return SafeVGG16(num_classes=num_classes)
+    if model_name == 'resnet18':
+        model = resnet18()
+        num_ftrs = model.fc.in_features
+        model.fc = nn.Linear(num_ftrs, num_classes)
+        return model
 
     exit('{} model is not supported'.format(model_name))
 
