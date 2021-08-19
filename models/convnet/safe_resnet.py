@@ -70,8 +70,8 @@ class BasicBlock(nn.Module):
         self.downsample = downsample
         self.stride = stride
 
-        self.safe_region1 = SafeRegion2d(planes)
-        self.safe_region2 = SafeRegion2d(planes)
+        self.safe_region1 = SafeRegion2d(planes, momentum=None)
+        self.safe_region2 = SafeRegion2d(planes, momentum=None)
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x
@@ -129,9 +129,9 @@ class Bottleneck(nn.Module):
         self.downsample = downsample
         self.stride = stride
 
-        self.safe_region1 = SafeRegion2d(width)
-        self.safe_region2 = SafeRegion2d(width)
-        self.safe_region3 = SafeRegion2d(planes * self.expansion)
+        self.safe_region1 = SafeRegion2d(width, momentum=None)
+        self.safe_region2 = SafeRegion2d(width, momentum=None)
+        self.safe_region3 = SafeRegion2d(planes * self.expansion, momentum=None)
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x
@@ -178,7 +178,7 @@ class ResNet(nn.Module):
         self._norm_layer = norm_layer
 
         self.inplanes = 64
-        self.safe_region1 = SafeRegion2d(self.inplanes)
+        self.safe_region1 = SafeRegion2d(self.inplanes, momentum=None)
         self.dilation = 1
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
