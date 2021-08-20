@@ -57,8 +57,9 @@ class _SafeRegion(Module):
         self.running_max.zero_()
 
         # test time stats
-        self.in_out = None
-        self.distance = None
+        self.last_in_out = None
+        self.last_d = None
+        self.last_x = None
 
     def _check_input_dim(self, input):
         raise NotImplementedError
@@ -69,15 +70,12 @@ class _SafeRegion(Module):
         dims = [d for d in range(input.dim())]
         dims.pop(1)
 
+        min = input.amin(dim=dims)
+        max = input.amax(dim=dims)
+
         # at training time we record parameters
         with torch.no_grad():
             if self.training:
-                min = input.amin(dim=dims)
-                max = input.amax(dim=dims)
-
-                min = torch.nan_to_num(min)
-                max = torch.nan_to_num(max)
-
                 if self.num_batches_tracked == 0:
                     self.running_min = min
                     self.running_max = max
@@ -104,7 +102,12 @@ class _SafeRegion(Module):
                 self.running_var = exponential_average_factor * var * n / (n - 1) \
                                    + (1 - exponential_average_factor) * self.running_var
             else:
-                pass
+                # test stats
+                self.last_x_max = max
+                self.last_x_min = min
+                self.last_in_out = torch.logical_or(torch.gt(input, self.running_max[None, :, None, None]),
+                                                    torch.lt(input, self.running_min[None, :, None, None]))
+                self.last_x_sum = self.last_in_out.sum(dims)
 
         return input
 
