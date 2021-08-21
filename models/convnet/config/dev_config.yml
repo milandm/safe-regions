@@ -10,7 +10,7 @@ config:
     # val dataset
     val_dataset_path: "/media/andrijazz/datadrive/datasets/cifar10"
     # train batch size per gpu
-    train_batch_size: 64
+    train_batch_size: 128
     # number of epochs
     train_num_epochs: 40
     # restore from wandb or local
@@ -18,13 +18,13 @@ config:
     # path to checkpoint from which to be restored
     train_restore_file: ""
     # learning rate
-    learning_rate: 0.001
+    learning_rate: 0.01
     # validation batch size
-    val_batch_size: 64
+    val_batch_size: 128
     # log freq
     train_log_freq: 100
     # train save freq in epochs
-    train_save_freq: 10
+    train_save_freq: 5
     # plot graphs to wandb
     plot_graphs_to_wandb_log_freq: 0
     # log video

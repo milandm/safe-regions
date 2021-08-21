@@ -1,0 +1,21 @@
+config:
+    # resolution
+    resolution: [32, 32]
+    # model name
+    model_name: "resnet18"
+    # dataset name
+    dataset_name: "cifar10c"
+    # test dataset
+    # test_dataset_path: "/media/andrijazz/datadrive/datasets/cifar10"
+    test_dataset_path: "/media/andrijazz/datadrive/datasets/CIFAR-10-C"
+    # restore from wandb or local
+    train_restore_storage: "local"
+    # path to checkpoint from which to be restored
+    train_restore_file: "/home/andrijazz/storage/saferegions/models/resnet18_2hkbam70_35.pth"
+    # test batch size
+    test_batch_size: 128
+    # corruptions
+    corruptions: ['brightness.npy']
+    # severity from 1 to 5
+    severities: [5]
+

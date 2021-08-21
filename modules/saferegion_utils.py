@@ -82,7 +82,7 @@ def collect_safe_regions_test_stats(model, run_dir=None, step=None):
     idx = 0
 
     fig = plt.figure()
-
+    # bar = plt.figure()
     for module in temp_model.modules():
         if isinstance(module, _SafeRegion) or isinstance(module, _SafeRegion) or isinstance(module, _SafeRegion):
             layer_name = 'layer' + str(idx).zfill(3)
@@ -94,6 +94,7 @@ def collect_safe_regions_test_stats(model, run_dir=None, step=None):
             ys_max = module.running_max.detach().cpu().numpy()
             sample_x_max = module.last_x_max.detach().cpu().numpy()
             sample_x_min = module.last_x_min.detach().cpu().numpy()
+            sample_out = module.last_x_sum.detach().cpu().numpy()
 
             layer_dir = os.path.join(run_dir, 'plots', layer_name)
             if not os.path.exists(layer_dir):
@@ -109,13 +110,24 @@ def collect_safe_regions_test_stats(model, run_dir=None, step=None):
             ax.set_xlabel('neural unit')
             ax.set_ylabel('recorded value')
             ax.set_title(f'Safe region at {layer_name} for sample {step}')
-            max_bound = 20
-            min_bound = 20
-            ax.set_ylim((-min_bound, max_bound))
+            max_bound = np.max(np.stack([ys_max, sample_x_max])) + 1
+            min_bound = np.min(np.stack([ys_min, sample_x_min])) - 1
+            ax.set_ylim((min_bound, max_bound))
             ax.legend()
             fig_name = os.path.join(layer_dir, f"{str(step).zfill(7)}.png")
             fig.savefig(fig_name)
             stats[f'saferegions/{layer_name}/chart'] = wandb.Image(fig)
             plt.clf()
+
+            # plot bar
+            bar_ax = fig.add_subplot()
+            bar_ax.bar(xs, sample_out)
+            bar_name = os.path.join(layer_dir, f"bar_{str(step).zfill(7)}.png")
+            fig.savefig(bar_name)
+            stats[f'saferegions/{layer_name}/bar'] = wandb.Image(fig)
+
+            plt.clf()
+
             idx += 1
+
     return stats

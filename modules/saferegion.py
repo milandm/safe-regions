@@ -45,8 +45,11 @@ class _SafeRegion(Module):
         self.register_buffer('running_max',  torch.zeros(num_features))
 
         # test stats
-        self.in_out = None
-        self.distance = None
+        self.last_x = None
+        self.last_x_max = None
+        self.last_x_min = None
+        self.last_in_out = None
+        self.last_x_sum = None
 
     def reset_stats(self) -> None:
         self.running_mean.zero_()
@@ -55,11 +58,6 @@ class _SafeRegion(Module):
         self.num_samples_tracked.zero_()
         self.running_min.zero_()
         self.running_max.zero_()
-
-        # test time stats
-        self.last_in_out = None
-        self.last_d = None
-        self.last_x = None
 
     def _check_input_dim(self, input):
         raise NotImplementedError
@@ -103,11 +101,14 @@ class _SafeRegion(Module):
                                    + (1 - exponential_average_factor) * self.running_var
             else:
                 # test stats
+                self.last_x = input
                 self.last_x_max = max
                 self.last_x_min = min
                 self.last_in_out = torch.logical_or(torch.gt(input, self.running_max[None, :, None, None]),
                                                     torch.lt(input, self.running_min[None, :, None, None]))
                 self.last_x_sum = self.last_in_out.sum(dims)
+                if torch.sum(self.last_in_out) > 0:
+                    print(1)
 
         return input
 

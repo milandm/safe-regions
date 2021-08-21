@@ -159,7 +159,7 @@ class ConvNetTrainingOperator(TrainingOperator):
             predicted = predicted.detach().cpu().numpy()
 
             # log random samples
-            sample_idx = np.random.choice(self.config['train_batch_size'])
+            sample_idx = np.random.choice(batch_size)
             sample_img = images[sample_idx]
             gt_caption = self.classes[labels[sample_idx]]
             predicted_caption = self.classes[predicted[sample_idx]]
